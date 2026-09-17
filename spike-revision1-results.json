@@ -1,0 +1,213 @@
+{
+  "pass": 39,
+  "fail": 0,
+  "total": 39,
+  "results": [
+    {
+      "section": "RLS coverage",
+      "label": "All 18 tenant-scoped tables have RLS enabled, forced, and a tenant_isolation policy",
+      "ok": true
+    },
+    {
+      "section": "RLS coverage",
+      "label": "All 8 platform-level tables correctly have NO RLS and NO policy",
+      "ok": true
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "user.user_type: rejects value outside (staff, client)",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "assignment: rejects BOTH matter_id and proceeding_id NULL",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "assignment: rejects BOTH matter_id and proceeding_id SET",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "matter_participant: rejects BOTH contact_id and client_id NULL",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "matter_participant: rejects BOTH contact_id and client_id SET",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "proceeding: rejects BOTH platform_case_type_id and tenant_case_type_id NULL",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "proceeding: rejects BOTH platform_case_type_id and tenant_case_type_id SET",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "conflict_check: rejects ALL FOUR triggered_by_* NULL",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "conflict_check: rejects TWO of four triggered_by_* SET",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "conflict_match: rejects BOTH matched_client_id and matched_contact_id NULL",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "CHECK constraints",
+      "label": "conflict_match: rejects BOTH matched_client_id and matched_contact_id SET",
+      "ok": true,
+      "detail": "got error code 23514"
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "office: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "user: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "role: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "user_role: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "tenant_feature: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "client: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "contact: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "client_contact: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "matter: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "matter_participant: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "proceeding: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "proceeding_status_history: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "tenant_case_type: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "assignment: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "conflict_check: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "conflict_match: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "audit_log: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "RLS read isolation (18 tables)",
+      "label": "role_permission: tenant A sees its own row and cannot see tenant B's row",
+      "ok": true
+    },
+    {
+      "section": "Cross-tenant INSERT rejection",
+      "label": "office: insert claiming tenant_id = tenant B while context = tenant A (rejected via RLS WITH CHECK)",
+      "ok": true
+    },
+    {
+      "section": "Cross-tenant INSERT rejection",
+      "label": "client: insert claiming tenant_id = tenant B while context = tenant A (rejected via RLS WITH CHECK)",
+      "ok": true
+    },
+    {
+      "section": "Cross-tenant INSERT rejection",
+      "label": "tenant_feature: insert claiming tenant_id = tenant B while context = tenant A (rejected via RLS WITH CHECK)",
+      "ok": true
+    },
+    {
+      "section": "Cross-tenant INSERT rejection",
+      "label": "assignment: insert claiming tenant_id = tenant B but referencing tenant A's matter (rejected via RLS WITH CHECK)",
+      "ok": true
+    },
+    {
+      "section": "Cross-tenant INSERT rejection",
+      "label": "proceeding: insert claiming tenant_id = tenant B but referencing tenant A's matter (rejected via RLS WITH CHECK)",
+      "ok": true
+    },
+    {
+      "section": "Connection-pool safety",
+      "label": "First request (with SET LOCAL) sees its tenant's data",
+      "ok": true
+    },
+    {
+      "section": "Connection-pool safety",
+      "label": "Second request on the SAME reused connection, no SET LOCAL, does NOT throw",
+      "ok": true
+    },
+    {
+      "section": "Connection-pool safety",
+      "label": "Second request on the SAME reused connection, no SET LOCAL, returns ZERO rows",
+      "ok": true
+    }
+  ]
+}

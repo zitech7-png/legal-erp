@@ -1,0 +1,610 @@
+// ============================================================================
+// Legal ERP — Month 1 Prisma Schema
+// Derived strictly from: Month-1 ERD Revision 1 + Clarification Addendum (locked/approved)
+// No entities, relationships, or constraints introduced beyond what those documents specify.
+//
+// IMPORTANT — things Prisma's schema language cannot express natively, handled
+// separately in migrations/0002_check_constraints_and_rls/migration.sql:
+//   - CHECK constraints (Prisma has no @check attribute)
+//   - Partial/filtered unique indexes (no WHERE clause support in schema.prisma)
+//   - Row-Level Security policies (not a Prisma concept at all)
+//   - The two cross-parent triggers from ERD §17.1 (role-scope / staff-only assignment)
+// Everything Prisma CAN express natively — composite foreign keys for same-tenant
+// integrity, ordinary unique/composite-unique constraints, nullability — is
+// expressed directly below, not deferred to raw SQL.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ----------------------------------------------------------------------------
+// PLATFORM-LEVEL (no tenantId, no RLS) — ERD §11, §5b
+// ----------------------------------------------------------------------------
+
+model Tenant {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name String
+  subdomain String   @unique
+  status String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  offices           Office[]
+  users             User[]
+  roles             Role[]
+  tenantFeatures    TenantFeature[]
+  clients           Client[]
+  contacts          Contact[]
+  matters           Matter[]
+  proceedings       Proceeding[]
+  tenantCaseTypes   TenantCaseType[]
+  assignments       Assignment[]
+  conflictChecks    ConflictCheck[]
+  conflictMatches   ConflictMatch[]
+  auditLogs         AuditLog[]
+  clientContacts    ClientContact[]
+  matterParticipants MatterParticipant[]
+  rolePermissions   RolePermission[]
+  userRoles         UserRole[]
+  proceedingHistory ProceedingStatusHistory[]
+
+  @@map("tenant")
+
+}
+
+model Permission {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key String   @unique
+  description String?
+  category String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permission")
+
+}
+
+model Jurisdiction {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  regions Region[]
+
+  @@map("jurisdiction")
+
+}
+
+model Region {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jurisdictionId String @db.Uuid @map("jurisdiction_id")
+  name String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  jurisdiction Jurisdiction  @relation(fields: [jurisdictionId], references: [id])
+  courtForums  CourtForum[]
+  offices      Office[]
+
+  @@unique([jurisdictionId, name])
+  @@map("region")
+
+}
+
+model ForumType {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  courtForums      CourtForum[]
+  caseTypes        CaseType[]
+  tenantCaseTypes  TenantCaseType[]
+
+  @@map("forum_type")
+
+}
+
+model CourtForum {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  regionId String @db.Uuid @map("region_id")
+  forumTypeId String @db.Uuid @map("forum_type_id")
+  name String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  region      Region       @relation(fields: [regionId], references: [id])
+  forumType   ForumType    @relation(fields: [forumTypeId], references: [id])
+  benches     Bench[]
+  proceedings Proceeding[]
+
+  @@unique([regionId, forumTypeId, name])
+  @@index([forumTypeId])
+  @@map("court_forum")
+
+}
+
+model Bench {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courtForumId String @db.Uuid @map("court_forum_id")
+  name String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  courtForum  CourtForum   @relation(fields: [courtForumId], references: [id])
+  proceedings Proceeding[]
+
+  @@unique([courtForumId, name])
+  @@map("bench")
+
+}
+
+// NOTE: `is_tenant_extensible` deliberately removed per ERD Revision 1 (Point #5) —
+// tenant-specific case types live in TenantCaseType below, not as a flag here.
+model CaseType {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  forumTypeId String @db.Uuid @map("forum_type_id")
+  name String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  forumType         ForumType        @relation(fields: [forumTypeId], references: [id])
+  proceedings       Proceeding[]
+  tenantCaseTypesBasedOn TenantCaseType[] @relation("TenantCaseTypeBasedOn")
+
+  @@unique([forumTypeId, name])
+  @@map("case_type")
+
+}
+
+// ----------------------------------------------------------------------------
+// TENANT-SCOPED — Identity / RBAC / Entitlements — ERD §2-4, §5a-5d
+// ----------------------------------------------------------------------------
+
+model Office {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  name String
+  regionId String? @db.Uuid @map("region_id")
+  isPrimary Boolean  @default(false) @map("is_primary")
+  address String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  region             Region?  @relation(fields: [regionId], references: [id])
+  usersAsPrimary     User[]   @relation("UserPrimaryOffice")
+  matters            Matter[]
+  userRoles          UserRole[]
+
+  @@unique([id, tenantId]) // supports composite FK from UserRole
+  @@index([tenantId])
+  @@map("office")
+
+}
+
+model User {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  primaryOfficeId String? @db.Uuid @map("primary_office_id")
+  email String
+  passwordHash String @map("password_hash")
+  userType String @map("user_type") // 'staff' | 'client' — CHECK enforced in raw-SQL layer (ERD §17.1 Rule 3)
+  fullName String @map("full_name")
+  status String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
+  primaryOffice         Office?  @relation("UserPrimaryOffice", fields: [primaryOfficeId], references: [id])
+  userRoles             UserRole[]
+  assignments           Assignment[]
+  auditLogsAsActor      AuditLog[]                 @relation("AuditLogActor")
+  conflictChecksRun     ConflictCheck[]             @relation("ConflictCheckRunBy")
+  conflictChecksCleared ConflictCheck[]             @relation("ConflictCheckClearedBy")
+  conflictMatchesDecided ConflictMatch[]            @relation("ConflictMatchDecidedBy")
+  mattersResponsible    Matter[]                    @relation("MatterResponsibleAttorney")
+  proceedingStatusChanges ProceedingStatusHistory[] @relation("ProceedingStatusChangedBy")
+
+  @@unique([tenantId, email])
+  @@unique([id, tenantId]) // supports composite FKs from UserRole, Assignment, ConflictCheck, ConflictMatch, AuditLog, ProceedingStatusHistory
+  @@index([tenantId])
+  @@map("user")
+
+}
+
+model Role {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  name String
+  isSystemDefault Boolean  @default(false) @map("is_system_default")
+  appliesToUserType String @default("staff") @map("applies_to_user_type") // 'staff' | 'client' — ERD §5a
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([tenantId, name])
+  @@unique([id, tenantId]) // supports composite FK from RolePermission, UserRole
+  @@index([tenantId])
+  @@map("role")
+
+}
+
+model RolePermission {
+  tenantId String @db.Uuid @map("tenant_id")
+  roleId String @db.Uuid @map("role_id")
+  permissionId String @db.Uuid @map("permission_id")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  role       Role       @relation(fields: [roleId, tenantId], references: [id, tenantId]) // composite same-tenant FK, ERD §5b'
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([tenantId, roleId, permissionId])
+  @@map("role_permission")
+
+}
+
+model UserRole {
+  id String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  userId String @db.Uuid @map("user_id")
+  roleId String @db.Uuid @map("role_id")
+  officeId String? @db.Uuid @map("office_id")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  user   User    @relation(fields: [userId, tenantId], references: [id, tenantId])   // composite same-tenant FK
+  role   Role    @relation(fields: [roleId, tenantId], references: [id, tenantId])   // composite same-tenant FK
+  office Office? @relation(fields: [officeId, tenantId], references: [id, tenantId]) // composite same-tenant FK, nullable
+
+  @@unique([userId, roleId, officeId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("user_role")
+
+}
+
+model TenantFeature {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  featureKey String @map("feature_key")
+  enabled Boolean  @default(false)
+  planTier String? @map("plan_tier")
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, featureKey])
+  @@map("tenant_feature")
+
+}
+
+// ----------------------------------------------------------------------------
+// TENANT-SCOPED — Clients & Contacts — ERD §7, §8, §8a
+// ----------------------------------------------------------------------------
+
+model Client {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  clientType String @map("client_type") // 'individual' | 'organization'
+  displayName String @map("display_name")
+  normalizedName String @map("normalized_name") // ERD §7 — Month-1 transliteration-aware matching, single variant
+  billingContactId String? @db.Uuid @map("billing_contact_id")
+  status String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  billingContact  Contact?            @relation("ClientBillingContact", fields: [billingContactId], references: [id])
+  matters         Matter[]
+  clientContacts  ClientContact[]
+  participantRows MatterParticipant[] @relation("ParticipantAsClient")
+  conflictCheckTriggers ConflictCheck[]  @relation("ConflictTriggeredByClient")
+  conflictMatches       ConflictMatch[]  @relation("ConflictMatchedClient")
+
+  @@unique([id, tenantId]) // supports composite FKs from ClientContact, MatterParticipant, ConflictCheck, ConflictMatch (Revision-1 clarification, §3.1)
+  @@index([tenantId])
+  @@map("client")
+
+}
+
+model Contact {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  fullName String @map("full_name")
+  normalizedName String @map("normalized_name") // ERD §8
+  contactType String @map("contact_type")
+  email String?
+  phone String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant                Tenant              @relation(fields: [tenantId], references: [id])
+  clientsBilledFor      Client[]            @relation("ClientBillingContact")
+  clientContacts        ClientContact[]
+  participantRows       MatterParticipant[] @relation("ParticipantAsContact")
+  conflictCheckTriggers ConflictCheck[]     @relation("ConflictTriggeredByContact")
+  conflictMatches       ConflictMatch[]     @relation("ConflictMatchedContact")
+
+  @@unique([id, tenantId]) // supports composite FKs (Revision-1 clarification, §3.1)
+  @@index([tenantId])
+  @@map("contact")
+
+}
+
+model ClientContact {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  clientId String @db.Uuid @map("client_id")
+  contactId String @db.Uuid @map("contact_id")
+  relationship String
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  client  Client  @relation(fields: [clientId, tenantId], references: [id, tenantId])  // composite same-tenant FK
+  contact Contact @relation(fields: [contactId, tenantId], references: [id, tenantId]) // composite same-tenant FK
+
+  @@unique([clientId, contactId, relationship])
+  @@map("client_contact")
+
+}
+
+// ----------------------------------------------------------------------------
+// TENANT-SCOPED — Matters, Participants, Proceedings — ERD §9, §9a, §10, §10a
+// ----------------------------------------------------------------------------
+
+model Matter {
+  id String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  matterNumber String @map("matter_number")
+  title String
+  clientId String @db.Uuid @map("client_id")
+  officeId String @db.Uuid @map("office_id")
+  practiceAreaId String? @db.Uuid @map("practice_area_id")
+  responsibleAttorneyId String? @db.Uuid @map("responsible_attorney_id")
+  status String
+  openedDate DateTime? @db.Timestamptz(6) @map("opened_date")
+  closedDate DateTime? @db.Timestamptz(6) @map("closed_date")
+  deletedAt DateTime? @db.Timestamptz(6) @map("deleted_at")
+  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant               Tenant              @relation(fields: [tenantId], references: [id])
+  client               Client              @relation(fields: [clientId], references: [id])
+  office               Office              @relation(fields: [officeId], references: [id])
+  responsibleAttorney  User?               @relation("MatterResponsibleAttorney", fields: [responsibleAttorneyId], references: [id])
+  proceedings          Proceeding[]
+  matterParticipants   MatterParticipant[]
+  assignments          Assignment[]        @relation("AssignmentMatter")
+  conflictCheckTriggers ConflictCheck[]    @relation("ConflictTriggeredByMatter")
+
+  @@unique([tenantId, matterNumber])
+  @@unique([id, tenantId]) // supports composite FKs from Proceeding, Assignment, MatterParticipant, ConflictCheck
+  @@index([tenantId, clientId])
+  @@index([tenantId, status])
+  @@map("matter")
+
+}
+
+model MatterParticipant {
+  id String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  matterId String @db.Uuid @map("matter_id")
+  proceedingId String? @db.Uuid @map("proceeding_id")
+  contactId String? @db.Uuid @map("contact_id")
+  clientId String? @db.Uuid @map("client_id")
+  role String
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  matter     Matter      @relation(fields: [matterId, tenantId], references: [id, tenantId]) // composite same-tenant FK
+  // Composite "same matter" FK — a referenced Proceeding must belong to this same Matter (ERD §9a).
+  proceeding Proceeding? @relation(fields: [proceedingId, matterId], references: [id, matterId])
+  contact    Contact?    @relation("ParticipantAsContact", fields: [contactId, tenantId], references: [id, tenantId])
+  client     Client?     @relation("ParticipantAsClient", fields: [clientId, tenantId], references: [id, tenantId])
+
+  // NOTE: the four partial unique indexes and the "exactly one of contactId/clientId"
+  // CHECK from ERD §9a are not expressible here — see migrations/0002_.../migration.sql.
+  @@index([tenantId, matterId])
+  @@index([tenantId, proceedingId])
+  @@map("matter_participant")
+
+}
+
+model Proceeding {
+  id String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  matterId String @db.Uuid @map("matter_id")
+  courtForumId String @db.Uuid @map("court_forum_id")
+  benchId String? @db.Uuid @map("bench_id")
+  platformCaseTypeId String? @db.Uuid @map("platform_case_type_id")
+  tenantCaseTypeId String? @db.Uuid @map("tenant_case_type_id")
+  caseNumber String? @map("case_number")
+  filingDiaryNumber String? @map("filing_diary_number")
+  filingDate DateTime? @db.Timestamptz(6) @map("filing_date")
+  externalCaseReferenceId String? @map("external_case_reference_id") // reserved for future eCourts/NJDG integration
+  physicalFileLocation String? @map("physical_file_location") // reserved, structured free text for Month 1; see blueprint note
+  status String
+  proceedingCustomFields Json? @map("proceeding_custom_fields")
+  deletedAt DateTime? @db.Timestamptz(6) @map("deleted_at")
+  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant             Tenant                    @relation(fields: [tenantId], references: [id])
+  matter             Matter                    @relation(fields: [matterId, tenantId], references: [id, tenantId]) // composite same-tenant FK
+  courtForum         CourtForum                @relation(fields: [courtForumId], references: [id])
+  bench              Bench?                    @relation(fields: [benchId], references: [id])
+  platformCaseType   CaseType?                 @relation(fields: [platformCaseTypeId], references: [id])
+  tenantCaseType     TenantCaseType?           @relation(fields: [tenantCaseTypeId, tenantId], references: [id, tenantId]) // composite same-tenant FK
+  matterParticipants MatterParticipant[]
+  statusHistory      ProceedingStatusHistory[]
+  assignments        Assignment[]              @relation("AssignmentProceeding")
+  conflictCheckTriggers ConflictCheck[]         @relation("ConflictTriggeredByProceeding")
+
+  // NOTE: CHECK (exactly one of platformCaseTypeId / tenantCaseTypeId) and the
+  // partial unique (tenantId, courtForumId, caseNumber) WHERE caseNumber IS NOT NULL
+  // are not expressible here — see migrations/0002_.../migration.sql.
+  @@unique([id, matterId])   // supports composite FK from MatterParticipant ("same matter" check)
+  @@unique([id, tenantId])  // supports composite FKs from Assignment, ConflictCheck, ProceedingStatusHistory
+  @@index([tenantId, matterId])
+  @@index([tenantId, courtForumId])
+  @@index([tenantId, status])
+  @@map("proceeding")
+
+}
+
+model ProceedingStatusHistory {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  proceedingId String @db.Uuid @map("proceeding_id")
+  previousStatus String? @map("previous_status")
+  newStatus String @map("new_status")
+  note String?
+  changedByUserId String @db.Uuid @map("changed_by_user_id")
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  proceeding Proceeding @relation(fields: [proceedingId, tenantId], references: [id, tenantId]) // composite same-tenant FK
+  changedBy  User       @relation("ProceedingStatusChangedBy", fields: [changedByUserId], references: [id])
+
+  @@index([tenantId, proceedingId, createdAt])
+  @@map("proceeding_status_history")
+
+}
+
+model TenantCaseType {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  forumTypeId String @db.Uuid @map("forum_type_id")
+  basedOnCaseTypeId String? @db.Uuid @map("based_on_case_type_id")
+  name String
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  forumType     ForumType     @relation(fields: [forumTypeId], references: [id])
+  basedOnCaseType CaseType?   @relation("TenantCaseTypeBasedOn", fields: [basedOnCaseTypeId], references: [id])
+  proceedings   Proceeding[]
+
+  @@unique([tenantId, forumTypeId, name])
+  @@unique([id, tenantId]) // supports composite FK from Proceeding
+  @@map("tenant_case_type")
+
+}
+
+// ----------------------------------------------------------------------------
+// TENANT-SCOPED — Assignment — ERD §12 (revised: nullable FKs, not polymorphic)
+// ----------------------------------------------------------------------------
+
+model Assignment {
+  id String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  matterId String? @db.Uuid @map("matter_id")
+  proceedingId String? @db.Uuid @map("proceeding_id")
+  userId String @db.Uuid @map("user_id")
+  role String
+  effectiveFrom DateTime @db.Timestamptz(6) @map("effective_from")
+  effectiveTo DateTime? @db.Timestamptz(6) @map("effective_to")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  matter     Matter?     @relation("AssignmentMatter", fields: [matterId, tenantId], references: [id, tenantId])         // composite same-tenant FK
+  proceeding Proceeding? @relation("AssignmentProceeding", fields: [proceedingId, tenantId], references: [id, tenantId]) // composite same-tenant FK
+  user       User        @relation(fields: [userId, tenantId], references: [id, tenantId])                              // composite same-tenant FK
+
+  // NOTE: CHECK (exactly one of matterId / proceedingId) and the staff-only
+  // trigger on userId are not expressible here — see migration + RLS spike doc.
+  @@index([tenantId, matterId])
+  @@index([tenantId, proceedingId])
+  @@index([tenantId, userId])
+  @@map("assignment")
+
+}
+
+// ----------------------------------------------------------------------------
+// TENANT-SCOPED — Conflicts Checking — ERD §13.2, §13.3 (revised: nullable FKs)
+// ----------------------------------------------------------------------------
+
+model ConflictCheck {
+  id String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  triggeredByClientId String? @db.Uuid @map("triggered_by_client_id")
+  triggeredByContactId String? @db.Uuid @map("triggered_by_contact_id")
+  triggeredByMatterId String? @db.Uuid @map("triggered_by_matter_id")
+  triggeredByProceedingId String? @db.Uuid @map("triggered_by_proceeding_id")
+  searchName String @map("search_name")
+  runByUserId String @db.Uuid @map("run_by_user_id")
+  clearedByUserId String? @db.Uuid @map("cleared_by_user_id")
+  clearedAt DateTime? @db.Timestamptz(6) @map("cleared_at")
+  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  tenant              Tenant          @relation(fields: [tenantId], references: [id])
+  triggeredByClient   Client?         @relation("ConflictTriggeredByClient", fields: [triggeredByClientId, tenantId], references: [id, tenantId])
+  triggeredByContact  Contact?        @relation("ConflictTriggeredByContact", fields: [triggeredByContactId, tenantId], references: [id, tenantId])
+  triggeredByMatter   Matter?         @relation("ConflictTriggeredByMatter", fields: [triggeredByMatterId, tenantId], references: [id, tenantId])
+  triggeredByProceeding Proceeding?   @relation("ConflictTriggeredByProceeding", fields: [triggeredByProceedingId, tenantId], references: [id, tenantId])
+  runBy               User            @relation("ConflictCheckRunBy", fields: [runByUserId, tenantId], references: [id, tenantId])
+  clearedBy           User?           @relation("ConflictCheckClearedBy", fields: [clearedByUserId, tenantId], references: [id, tenantId])
+  matches             ConflictMatch[]
+
+  // NOTE: CHECK (exactly one of the four triggeredBy* columns) not expressible here.
+  @@unique([id, tenantId]) // supports composite FK from ConflictMatch (Revision-1 clarification, §3.2)
+  @@index([tenantId, createdAt])
+  @@map("conflict_check")
+
+}
+
+model ConflictMatch {
+  id String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  conflictCheckId String @db.Uuid @map("conflict_check_id")
+  matchedClientId String? @db.Uuid @map("matched_client_id")
+  matchedContactId String? @db.Uuid @map("matched_contact_id")
+  similarityScore Decimal @map("similarity_score")
+  decision String  // 'flagged' | 'cleared' | 'unreviewed'
+  decidedByUserId String? @db.Uuid @map("decided_by_user_id")
+
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  conflictCheck  ConflictCheck @relation(fields: [conflictCheckId, tenantId], references: [id, tenantId])
+  matchedClient  Client?       @relation("ConflictMatchedClient", fields: [matchedClientId, tenantId], references: [id, tenantId])
+  matchedContact Contact?      @relation("ConflictMatchedContact", fields: [matchedContactId, tenantId], references: [id, tenantId])
+  decidedBy      User?         @relation("ConflictMatchDecidedBy", fields: [decidedByUserId, tenantId], references: [id, tenantId])
+
+  // NOTE: CHECK (exactly one of matchedClientId / matchedContactId) not expressible here.
+  @@index([tenantId, conflictCheckId])
+  @@map("conflict_match")
+
+}
+
+// ----------------------------------------------------------------------------
+// TENANT-SCOPED — Audit Log — ERD §15 (deliberate polymorphic exception)
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid @map("tenant_id")
+  resourceType String @map("resource_type")
+  resourceId String @db.Uuid @map("resource_id") // deliberately NOT a native FK — see ERD §15 justification
+  event String
+  actorId String? @db.Uuid @map("actor_id")
+  metadata Json?
+  ipAddress String? @map("ip_address")
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  actor  User?  @relation("AuditLogActor", fields: [actorId, tenantId], references: [id, tenantId])
+
+  @@index([tenantId, resourceType, resourceId])
+  @@index([tenantId, actorId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("audit_log")
+
+}
